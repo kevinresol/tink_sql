@@ -8,20 +8,27 @@ import tink.sql.Expr;
 import tink.sql.Format;
 import tink.sql.Info;
 import tink.sql.types.*;
+import tink.sql.drivers.*;
 
 using tink.CoreApi;
 using StringTools;
 
 class PostgreSql implements Driver {
-	var settings:Dynamic;
+	var settings:PostgreSqlSettings;
 	
 	public function new(settings) {
 		this.settings = settings;
 	}
 	
 	public function open<Db:DatabaseInfo>(name:String, db:Db):Connection<Db> {
-		var client = new PgClient();
-		client.connect(function(e){});
+		var client = new PgClient({
+			user: settings.user,
+			password: settings.password,
+			host: settings.host,
+			port: settings.port,
+			database: name,
+		});
+		client.connect();
 		return new PostgreSqlConnection(db, client);
 	} 
 }
@@ -67,22 +74,29 @@ class PostgreSqlConnection<Db:DatabaseInfo> implements Connection<Db> implements
 	public function insert<Row:{}>(table:TableInfo<Row>, items:Array<Insert<Row>>):Surprise<Id<Row>, Error> {
 		return Future.async(function (cb) {
 			client.query(
-				'INSERT INTO "auto2" ("foo") VALUES (\'2017-04-03 23:57:34\') RETURNING id',
-				function (error, result) {
-					cb(switch [error, result] {
-						case [null, _]:
-							trace(result);
-							trace(result._parsers[0]());
-							Success(new Id(null));
-						case [e, _]: Failure(toError(e));
-					});
-				}
+				Format.insert(table, items, this),
+				function (error, result) cb(
+					if(error == null)
+						Success(new Id(0)) // TODO: get back the id, using the "RETURNING" keyword
+					else
+						Failure(toError(error))
+				)
 			);
 		});
 	}
 	
 	public function update<Row:{}>(table:TableInfo<Row>, ?c:Condition, ?max:Int, update:Update<Row>):Surprise<{ rowsAffected: Int }, Error> {
-		throw 'not implemented';
+		return Future.async(function (cb) {
+			client.query(
+				Format.update(table, c, max, update, this),
+				function (error, result:{rowCount:Int}) cb(
+					if(error == null)
+						Success({rowsAffected: result.rowCount})
+					else
+						Failure(toError(error))
+				)
+			);
+		});
 	}
 	
 }
@@ -95,8 +109,8 @@ private extern class PgEscape {
 
 @:jsRequire('pg', 'Client')
 private extern class PgClient {
-	function new();
-	function connect(cb:Dynamic->Void):Void;
+	function new(?options:Dynamic);
+	function connect(?cb:Dynamic->Void):Void;
 	function query<T>(query:String, ?cb:js.Error->T->Void):PgQuery<T>;
 }
 private extern class PgQuery<T> extends js.node.events.EventEmitter<PgQuery<T>> {}

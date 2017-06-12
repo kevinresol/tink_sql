@@ -1,0 +1,6 @@
+-cp tests
+-main Playground
+-js bin/playground.js
+-lib tink_sql
+-lib hxnodejs
+-lib geojson

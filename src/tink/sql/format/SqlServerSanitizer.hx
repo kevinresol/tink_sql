@@ -33,28 +33,16 @@ class SqlServerSanitizer implements Sanitizer {
   }
   
   public function string(s:String):String {
-    /**
-     * This is taken from https://github.com/felixge/node-mysql/blob/12979b273375971c28afc12a9d781bd0f7633820/lib/protocol/SqlString.js#L152
-     * Writing your own escaping functions is questionable practice, but given that Felix worked with Oracle on this one, I think it should do.
-     * 
-     * TODO: port these tests too: https://github.com/felixge/node-mysql/blob/master/test/unit/protocol/test-SqlString.js
-     * TODO: optimize performance. The current implementation is very naive.
-     */
     var buf = new StringBuf();
     
     buf.addChar('\''.code);
     
     for (c in 0...s.length) 
       switch s.fastCodeAt(c) {
-        case         0: buf.add('\\0');
-        case         8: buf.add('\\b');
-        case '\t'.code: buf.add('\\t');
-        case '\n'.code: buf.add('\\n');
-        case '\r'.code: buf.add('\\r');
-        case      0x1a: buf.add('\\Z');
-        // case  '"'.code: buf.add('\\"');
+        // case '\t'.code: buf.add('\' + CHAR(${'\t'.code}) + \'');
+        // case '\n'.code: buf.add('\' + CHAR(${'\n'.code}) + \'');
+        // case '\r'.code: buf.add('\' + CHAR(${'\r'.code}) + \'');
         case '\''.code: buf.add('\'\'');
-        case '\\'.code: buf.add('\\\\');
         case v: buf.addChar(v);
       }
       

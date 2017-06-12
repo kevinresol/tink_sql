@@ -13,7 +13,7 @@ class Playground {
 		
 		var db = new Db('master', sql);
 		
-		db.test.insertOne({name: 'Random' + Std.random(99999), age: Std.random(100)})
+		db.test.insertOne({name: 'Ra\'ndom\n' + Std.random(99999), age: Std.random(100)})
 			.handle(function(o) switch o {
 				case Success(rows): trace(rows); Sys.exit(0);
 				case Failure(e): trace(e); Sys.exit(e.code);

@@ -3,6 +3,7 @@ package tink.sql.format;
 import haxe.io.Bytes;
 import tink.sql.Format;
 
+using DateTools;
 using StringTools;
 using tink.CoreApi;
 
@@ -12,8 +13,11 @@ class SqlServerSanitizer implements Sanitizer {
   
   public function value(v:Any):String 
     return
-      if(Std.is(v, String)) string(v) 
+      if(v == null) 'NULL';
+      else if(Std.is(v, String)) string(v) 
+      else if(Std.is(v, Bool)) (v:Bool) ? '1' : '0';
       else if(Std.is(v, Bytes)) '0x' + (v:Bytes).toHex();
+      else if(Std.is(v, Date)) 'DATEADD(S, ${(v:Date).getTime()/1000}, \'1970-01-01\')';
       else Std.string(v);
   
   public function ident(s:String):String {

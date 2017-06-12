@@ -19,9 +19,9 @@ class Run {
     
     Runner.run(TestBatch.make([
       new TypeTest(),
-      new FormatTest(),
-      new GeometryTest(),
-      new ExprTest(),
+      // new FormatTest(),
+      // new GeometryTest(),
+      // new ExprTest(),
       new Run(),
     ])).handle(Runner.exit);
     
@@ -34,7 +34,8 @@ class Run {
   }
   
   function new() {
-    db = new Db('test', new tink.sql.drivers.MySql( { user:'root', password: '' } ));
+    db = new Db('test', new tink.sql.drivers.SqlServer( { user:'sa', password: 'Password123', host: '192.168.0.107'} ));
+    // db = new Db('test', new tink.sql.drivers.MySql( { user:'root', password: '' } ));
   }
   
   var db:Db;
@@ -88,10 +89,10 @@ class Run {
   public function insertedCount<T>(query:Lazy<Promise<Array<T>>>, expected:Int)
     return insertUsers().next(function(_) return count(query.get(), expected, asserts));
   
-  public function update() {
-    await(runUpdate, asserts);
-    return asserts;
-  }
+  // public function update() {
+  //   await(runUpdate, asserts);
+  //   return asserts;
+  // }
   
   function await(run:AssertionBuffer->Promise<Noise>, asserts:AssertionBuffer)
     run(asserts).handle(function(o) switch o {

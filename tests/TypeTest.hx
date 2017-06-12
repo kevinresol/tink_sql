@@ -3,7 +3,7 @@ package;
 import Db;
 import tink.sql.Format;
 import tink.sql.Info;
-import tink.sql.drivers.MySql;
+import tink.sql.drivers.*;
 import tink.unit.Assert.assert;
 
 using tink.CoreApi;
@@ -13,21 +13,16 @@ using tink.CoreApi;
 class TypeTest {
 	
 	var db:Db;
-	var driver:MySql;
 	
 	public function new() {
-		driver = new MySql({user: 'root', password: ''});
+		// var driver = new MySql({user: 'root', password: ''});
+		var driver = new SqlServer({ user:'sa', password: 'Password123', host: '192.168.0.107'});
 		db = new Db('test', driver);
 	}
 	
 	@:before
 	public function createTable() {
-		return db.Types.create();
-	}
-	
-	@:after
-	public function dropTable() {
-		return db.Types.drop();
+		return db.Types.drop().flatMap(function(_) return db.Types.create());
 	}
 	
 	public function insert() {

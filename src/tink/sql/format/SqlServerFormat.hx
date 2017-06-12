@@ -4,6 +4,7 @@ import tink.sql.Expr;
 import tink.sql.Info;
 import tink.sql.Format;
 
+using Lambda;
 
 class SqlServerFormat {
 	
@@ -103,9 +104,39 @@ class SqlServerFormat {
 	}
 	
 	public function insert<Row:{}>(table:TableInfo<Row>, rows:Array<Insert<Row>>, s:Sanitizer) {
-		return
-			'INSERT INTO ${s.ident(table.getName())} (${[for (f in table.fieldnames()) s.ident(f)].join(", ")}) VALUES ' +
-				[for (row in rows) '(' + table.sqlizeRow(row, s.value).join(', ') + ')'].join(', ');
+		var fields = [], idFields = [];
+		for(f in table.getFields()) {
+			switch f.type {
+				case DInt(_, _, true): idFields.push(s.ident(f.name));
+				default: fields.push(f);
+			}
+		}
+		
+		function sqlizeRow(row:Insert<Row>):Array<String> 
+			return [for (f in fields) {
+				var fname = f.name;
+				var fval = Reflect.field(row, fname);
+				if(fval == null) s.value(null);
+				else switch f.type {
+					case DPoint:
+					'ST_GeomFromGeoJSON(\'${haxe.Json.stringify(fval)}\')';
+					default:
+					s.value(fval);
+				}
+			}];
+			
+		var sql = 'INSERT INTO ${s.ident(table.getName())} (${[for (f in fields) s.ident(f.name)].join(", ")})';
+		if(idFields.length > 0) {
+			sql = 'DECLARE @TempTable TABLE(${[for(f in idFields) '$f INT'].join(',')}); ' + sql;
+			sql += ' OUTPUT ${[for(f in idFields) 'INSERTED.$f'].join(',')} INTO @TempTable';
+		}
+		
+		sql += ' VALUES ' + [for (row in rows) '(' + sqlizeRow(row).join(', ') + ')'].join(', ') + ';';
+		
+		if(idFields.length > 0) {
+			sql += 'SELECT ${[for(f in idFields) 'MAX($f)'].join(',')} FROM @TempTable';
+		}
+		return sql;
 	}
 	
 	public function selectAll<A:{}, Db>(t:Target<A, Db>, ?c:Condition, s:Sanitizer, ?limit:Limit)         
@@ -127,5 +158,63 @@ class SqlServerFormat {
 			sql: sql,
 			params: query == null ? [] : query.params,
 		}
+	}
+	
+	
+	public function dropTable<Row:{}>(table:TableInfo<Row>, s:Sanitizer)
+		return 'DROP TABLE ' + s.ident(table.getName());
+	
+	public function createTable<Row:{}>(table:TableInfo<Row>, s:Sanitizer, ifNotExists = false) {
+		var sql = 'CREATE TABLE ';
+		// if(ifNotExists) sql += 'IF NOT EXISTS '; // TODO:
+		sql += s.ident(table.getName());
+		sql += ' (';
+		
+		var primary = [];
+		sql += [for(f in table.getFields()) {
+			var sql = s.ident(f.name) + ' ';
+			var autoIncrement = false;
+			sql += switch f.type {
+				case DBool:
+					'BIT';
+				
+				case DFloat(bits):
+					'FLOAT';
+				
+				case DInt(bits, signed, autoInc):
+					if(autoInc) autoIncrement = true;
+					'INT';
+				
+				case DString(maxLength):
+				if(maxLength < 4000)
+					'NVARCHAR($maxLength)';
+				else
+					'NTEXT';
+				
+				case DBlob(maxLength):
+				if(maxLength < 8000)
+					'VARBINARY($maxLength)';
+				else
+					'VARBINARY(MAX)';
+				
+				case DDateTime:
+					'DATETIME';
+				
+				case DPoint:
+					'POINT';
+			}
+			sql += if(f.nullable) ' NULL' else ' NOT NULL';
+			if(autoIncrement) sql += ' IDENTITY(1,1)';
+			switch f.key {
+				case Some(Unique): sql += ' UNIQUE';
+				case Some(Primary): sql += ' PRIMARY KEY';
+				case None: // do nothing
+			}
+			sql;
+		}].join(', ');
+		
+		sql += ')';
+		
+		return sql;
 	}
 }

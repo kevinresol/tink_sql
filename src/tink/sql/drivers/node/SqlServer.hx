@@ -1,5 +1,6 @@
 package tink.sql.drivers.node;
 
+import js.node.Buffer;
 import haxe.DynamicAccess;
 import tink.sql.drivers.SqlServerSettings;
 import tink.sql.Connection;
@@ -20,7 +21,9 @@ class SqlServer implements Driver {
 		this.settings = settings;
 	
 	public function open<Db:DatabaseInfo>(name:String, info:Db):Connection<Db> {
-		var cnx = NativeSql.connect({
+		var trigger = Future.trigger();
+		var cnx;
+		cnx = new NativeConnection({
 			user: settings.user,
 			password: settings.password,
 			server: settings.host,
@@ -30,8 +33,8 @@ class SqlServer implements Driver {
 				// If you're on Windows Azure, you will need this:
 				// encrypt: true,
 			// },
-		});
-		return new SqlServerConnection(cnx);
+		}, function(e) trigger.trigger(e == null ? Success(cnx) : Failure(Error.withData(500, e.message, e))));
+		return new SqlServerConnection(trigger);
 	}
 }
 
@@ -54,11 +57,11 @@ class SqlServerConnection<Db:DatabaseInfo> implements Connection<Db> {
 	
 	
 	public function dropTable<Row:{}>(table:TableInfo<Row>):Promise<Noise> {
-		throw '';
+		return cnx.next(function(cnx) return cnx.request().query(format.dropTable(table, sanitizer))).noise();
 	}
 	
 	public function createTable<Row:{}>(table:TableInfo<Row>):Promise<Noise> {
-		throw '';
+		return cnx.next(function(cnx) return cnx.request().query(format.createTable(table, sanitizer))).noise();
 	}
 	
 	public function selectAll<A:{}>(t:Target<A, Db>, ?c:Condition, ?limit:Limit):RealStream<A> {
@@ -79,7 +82,16 @@ class SqlServerConnection<Db:DatabaseInfo> implements Connection<Db> {
 			
 			
 			req.on('row', function(row:DynamicAccess<Dynamic>) {
-				if(t.match(TTable(_))) signal.trigger(Data((cast row:A)));
+				
+				function convert(row:DynamicAccess<Dynamic>):A {
+					for(key in row.keys()) {
+						var value = row.get(key);
+						if(Buffer.isBuffer(value)) row.set(key, (value:Buffer).hxToBytes());
+					}
+					return cast row;
+				}
+				
+				if(t.match(TTable(_))) signal.trigger(Data(convert(row)));
 				else {
 					var parts = [];
 					function extractPart(t:Target<Dynamic, Db>) {
@@ -104,6 +116,7 @@ class SqlServerConnection<Db:DatabaseInfo> implements Connection<Db> {
 					
 					// HACK: use the same object for all parts
 					// FIXME: because this will screw up reflection
+					convert(row);
 					for(part in parts) result.set(part, row);
 					signal.trigger(Data((cast result:A)));
 				}
@@ -127,11 +140,16 @@ class SqlServerConnection<Db:DatabaseInfo> implements Connection<Db> {
 	public function insert<Row:{}>(table:TableInfo<Row>, items:Array<Insert<Row>>):Promise<Id<Row>>  {
 		return cnx.next(function(cnx) {
 			var query = format.insert(table, items, sanitizer);
-			trace(query);
+			
 			return Promise.ofJsPromise(cnx.request().query(query))
-				.next(function(v) {
-					trace(v);
-					return null;
+				.next(function(v):Id<Row> {
+					if(v.recordset == null) return null;
+					var result = v.recordset[0];
+					if(result == null) return null;
+					var field = Reflect.fields(result)[0];
+					if(field == null) return null;
+					var id = Reflect.field(result, field); // HACK: very hacky...
+					return id;
 				});
 		});
 	}
@@ -152,7 +170,10 @@ private extern class NativeSql {
 	
 	static function connect(config:Dynamic):js.Promise<NativeConnection>;
 }
+
+@:jsRequire('mssql', 'ConnectionPool')
 private extern class NativeConnection {
+	function new(config:Dynamic, ?cb:js.Error->Void);
 	function request():NativeRequest;
 }
 

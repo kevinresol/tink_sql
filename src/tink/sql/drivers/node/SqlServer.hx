@@ -155,11 +155,23 @@ class SqlServerConnection<Db:DatabaseInfo> implements Connection<Db> {
 	}
 	
 	public function update<Row:{}>(table:TableInfo<Row>, ?c:Condition, ?max:Int, update:Update<Row>):Promise<{rowsAffected:Int}> {
-		throw '';
+		return cnx.next(function(cnx) {
+			var query = format.update(table, c, max, update, sanitizer);
+			
+			
+			var req = cnx.request();
+			for(param in query.params) req = req.input(param.name, param.value);
+			
+			return Promise.ofJsPromise(req.query(query.sql))
+				.next(function(v):{rowsAffected:Int} {
+					trace(v);
+					return {rowsAffected: 0};
+				});
+		});
 	}
 	
 	public function delete<Row:{}>(table:TableInfo<Row>, ?c:Condition, ?max:Int):Promise<{rowsAffected:Int}> {
-		throw '';
+		throw 'not implemented';
 	}
 	
 }

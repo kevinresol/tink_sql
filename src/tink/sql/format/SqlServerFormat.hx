@@ -3,6 +3,7 @@ package tink.sql.format;
 import tink.sql.Expr;
 import tink.sql.Info;
 import tink.sql.Format;
+import tink.sql.Connection;
 
 using Lambda;
 
@@ -10,98 +11,6 @@ class SqlServerFormat {
 	
 	public function new() {}
 	
-	function binOp(o:BinOp<Dynamic, Dynamic, Dynamic>) 
-		return switch o {
-			case Add: '+';
-			case Subt: '-';
-			case Mult: '*';
-			case Div: '/';
-			case Mod: 'MOD';
-			case Or: 'OR';
-			case And: 'AND ';
-			case Equals: '=';
-			case Greater: '>';
-			case Like: 'LIKE';
-			case In: 'IN';
-		}
-		
-	function unOp(o:UnOp<Dynamic, Dynamic>)
-		return switch o {
-			case Not: 'NOT';
-			case Neg: '-';      
-		}
-		
-	public function expr<A>(e:Expr<A>):{sql:String, params:Array<{name:String, type:Dynamic, value:Dynamic}>} {
-		var params = [];
-		
-		function addParam(type:Dynamic, value:Dynamic) {
-			var name = 'arg' + params.length;
-			params.push({name: name, type: type, value: value});
-			return name;
-		}
-		
-		inline function isEmptyArray(e:ExprData<Dynamic>)
-		return e.match(EValue([], VArray(_)));
-		
-		function rec(e:ExprData<Dynamic>) {
-			return
-				switch e {
-					case EUnOp(op, a):
-						unOp(op) + ' ' + rec(a);
-					case EBinOp(In, a, b) if(isEmptyArray(b)): // workaround haxe's weird behavior with abstract over enum
-						'@' + addParam(/*NativeTypes.Bit*/ null, false);
-					case EBinOp(op, a, b):
-						'(${rec(a)} ${binOp(op)} ${rec(b)})';
-					case ECall(name, args):
-						'$name(${[for(arg in args) rec(arg)].join(',')})';
-					case EField(table, name):
-						'"$table"."$name"';
-					case EValue(v, VBool):
-						'@' + addParam(/*NativeTypes.Bit*/ null, v);
-					case EValue(v, VString):
-						'@' + addParam(/*NativeTypes.VarChar*/ null, v);
-					case EValue(v, VInt):
-						'@' + addParam(/*NativeTypes.Int*/ null, v);
-					case EValue(v, VFloat):
-						'@' + addParam(/*NativeTypes.Float*/ null, v);
-					case EValue(v, VDate):
-						'@' + addParam(/*NativeTypes.DateTime*/ null, v);
-					case EValue(bytes, VBytes):
-						'@' + addParam(/*NativeTypes.VarBinary*/ null, js.node.Buffer.hxFromBytes(bytes));
-					case EValue(geom, VGeometry(Point)):
-						throw 'not implemented';
-					case EValue(geom, VGeometry(_)):
-						throw 'not implemented';
-					case EValue(value, VArray(VBool)):
-						'(' + [for(v in value) rec(EValue(v, VBool))].join(', ') + ')';
-					case EValue(value, VArray(VInt)):          
-						'(' + [for(v in value) rec(EValue(v, VInt))].join(', ') + ')';
-					case EValue(value, VArray(VFloat)):          
-						'(' + [for(v in value) rec(EValue(v, VFloat))].join(', ') + ')';
-					case EValue(value, VArray(VString)):          
-						'(' + [for(v in value) rec(EValue(v, VString))].join(', ') + ')';
-					case EValue(_, VArray(_)):          
-						throw 'Only arrays of primitive types are supported';
-					}
-		}
-		
-		return {
-			sql: rec(e),
-			params: params,
-		}
-	}
-	
-	function toValueType(dataType:DataType) {
-		return switch dataType {
-			case DBool: VBool;
-			case DInt(bits, signed, autoIncrement): VInt;
-			case DFloat(bits): VFloat;
-			case DString(maxLength): VString;
-			case DBlob(maxLength): VBytes;
-			case DDateTime: VDate;
-			case DPoint: VGeometry(Point);
-		}
-	}
 	
 	public function insert<Row:{}>(table:TableInfo<Row>, rows:Array<Insert<Row>>, s:Sanitizer) {
 		var fields = [], idFields = [];
@@ -143,21 +52,42 @@ class SqlServerFormat {
 		return select(t, '*', c, s, limit);
 
 	function select<A:{}, Db>(t:Target<A, Db>, what:String, ?c:Condition, s:Sanitizer, ?limit:Limit) {
-		var sql = 'SELECT $what FROM ' + Format.target(t, s);
 		
-		var query = null;
+		var query = new QueryBuilder();
+		
+		query.addString('SELECT $what FROM ' + Format.target(t, s));
+		
 		if (c != null) {
-			query = expr(c);
-			sql += ' WHERE ' + query.sql;
+			query.addString('WHERE');
+			query.addExpr(c);
 		}
 		
-		if (limit != null) 
-		sql += 'LIMIT ${limit.limit} OFFSET ${limit.offset}';
-		
-		return {
-			sql: sql,
-			params: query == null ? [] : query.params,
+		if (limit != null) {
+			query.addString('LIMIT ${limit.limit} OFFSET ${limit.offset}');
 		}
+		
+		return query.export();
+	}
+	
+	public function update<Row:{}>(table:TableInfo<Row>, c:Null<Condition>, max:Null<Int>, update:Update<Row>, s:Sanitizer) {
+		var query = new QueryBuilder();
+		query.addString('UPDATE ${table.getName()} SET');
+		
+		var first = true;
+		for (u in update) {
+			if(first) first = true else query.addString(',');
+			query.addString(s.ident(u.field.name) + ' = ');
+			query.addExpr(u.expr.data);
+		}
+		if (c != null) {
+			query.addString('WHERE');
+			query.addExpr(c);
+		}
+		
+		if (max != null)
+			query.addString('LIMIT ' + s.value(max));
+		
+		return query.export();
 	}
 	
 	
@@ -216,5 +146,113 @@ class SqlServerFormat {
 		sql += ')';
 		
 		return sql;
+	}
+}
+
+class QueryBuilder {
+	var sql = '';
+	var params:Array<{name:String, type:Dynamic, value:Dynamic}> = [];
+	
+	public function new() {}
+	
+	public function export()
+		return {sql: sql, params: params};
+	
+	public function addString(s:String):Void {
+		sql += ' ' + s;
+	}
+	
+	public function addExpr<A>(e:Expr<A>):Void {
+		expr(e);
+	}
+	
+	function expr<A>(e:Expr<A>) {
+		function addParam(type:Dynamic, value:Dynamic) {
+			var name = 'arg' + params.length;
+			params.push({name: name, type: type, value: value});
+			return name;
+		}
+		
+		inline function isEmptyArray(e:ExprData<Dynamic>)
+		return e.match(EValue([], VArray(_)));
+		
+		function rec(e:ExprData<Dynamic>) {
+			return
+				switch e {
+					case EUnOp(op, a):
+						unOp(op) + ' ' + rec(a);
+					case EBinOp(In, a, b) if(isEmptyArray(b)): // workaround haxe's weird behavior with abstract over enum
+						'@' + addParam(/*NativeTypes.Bit*/ null, false);
+					case EBinOp(op, a, b):
+						'(${rec(a)} ${binOp(op)} ${rec(b)})';
+					case ECall(name, args):
+						'$name(${[for(arg in args) rec(arg)].join(',')})';
+					case EField(table, name):
+						'"$table"."$name"';
+					case EValue(v, VBool):
+						'@' + addParam(/*NativeTypes.Bit*/ null, v);
+					case EValue(v, VString):
+						'@' + addParam(/*NativeTypes.VarChar*/ null, v);
+					case EValue(v, VInt):
+						'@' + addParam(/*NativeTypes.Int*/ null, v);
+					case EValue(v, VFloat):
+						'@' + addParam(/*NativeTypes.Float*/ null, v);
+					case EValue(v, VDate):
+						'@' + addParam(/*NativeTypes.DateTime*/ null, v);
+					case EValue(bytes, VBytes):
+						'@' + addParam(/*NativeTypes.VarBinary*/ null, js.node.Buffer.hxFromBytes(bytes));
+					case EValue(geom, VGeometry(Point)):
+						throw 'not implemented';
+					case EValue(geom, VGeometry(_)):
+						throw 'not implemented';
+					case EValue(value, VArray(VBool)):
+						'(' + [for(v in value) rec(EValue(v, VBool))].join(', ') + ')';
+					case EValue(value, VArray(VInt)):          
+						'(' + [for(v in value) rec(EValue(v, VInt))].join(', ') + ')';
+					case EValue(value, VArray(VFloat)):          
+						'(' + [for(v in value) rec(EValue(v, VFloat))].join(', ') + ')';
+					case EValue(value, VArray(VString)):          
+						'(' + [for(v in value) rec(EValue(v, VString))].join(', ') + ')';
+					case EValue(_, VArray(_)):          
+						throw 'Only arrays of primitive types are supported';
+					}
+		}
+		
+		sql += ' ' + rec(e);
+	}
+	
+	function binOp(o:BinOp<Dynamic, Dynamic, Dynamic>) 
+		return switch o {
+			case Add: '+';
+			case Subt: '-';
+			case Mult: '*';
+			case Div: '/';
+			case Mod: 'MOD';
+			case Or: 'OR';
+			case And: 'AND ';
+			case Equals: '=';
+			case Greater: '>';
+			case Like: 'LIKE';
+			case In: 'IN';
+		}
+		
+	function unOp(o:UnOp<Dynamic, Dynamic>)
+		return switch o {
+			case Not: 'NOT';
+			case Neg: '-';      
+		}
+		
+	
+	
+	function toValueType(dataType:DataType) {
+		return switch dataType {
+			case DBool: VBool;
+			case DInt(bits, signed, autoIncrement): VInt;
+			case DFloat(bits): VFloat;
+			case DString(maxLength): VString;
+			case DBlob(maxLength): VBytes;
+			case DDateTime: VDate;
+			case DPoint: VGeometry(Point);
+		}
 	}
 }

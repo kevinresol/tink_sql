@@ -55,7 +55,7 @@ class TableBuilder {
               
               fieldsExprFields.push({
                 field: f.name,
-                expr: macro new tink.sql.Expr.Field($v{name}, $v{f.name}),
+                expr: macro new tink.sql.Expr.Field(tableName, $v{f.name}),
               });
               
               fieldsValues.push({
@@ -99,8 +99,13 @@ class TableBuilder {
                       var maxLength = 12; // TODO: make these configurable
                       macro tink.sql.Info.DataType.DInt($v{maxLength}, false, $v{f.meta.has(':autoIncrement')});
                     
-                    case TAbstract(_.get() => {type: type}, _):
-                      resolveType(type);
+                    case TAbstract(_.get() => {name: name, type: type}, _):
+                      switch type {
+                        case TAbstract(_.get() => {name: core, meta: meta}, _) if(meta.has(':coreType')):
+                          f.pos.error('$core as underlying type for the abstract $name is unsupported. Use types from the tink.sql.types package.');
+                        default:
+                          resolveType(type);
+                      }
                       
                     case _.getID() => v:
                       if(v == null) v = Std.string(type);
@@ -130,9 +135,8 @@ class TableBuilder {
             
             macro class $cName<Db> extends tink.sql.Table.TableSource<$fieldsType, $filterType, $rowType, Db> {
               
-              public function new(cnx) {                
-                  
-                super(cnx, new tink.sql.Table.TableName($v{name}), ${EObjectDecl(fieldsExprFields).at(ctx.pos)});
+              public function new(cnx, tableName) {                
+                super(cnx, new tink.sql.Table.TableName(tableName), ${EObjectDecl(fieldsExprFields).at(ctx.pos)});
               }
               
               static var FIELD_NAMES = $v{names};

@@ -25,6 +25,7 @@ class Format {
     
   static function unOp(o:UnOp<Dynamic, Dynamic>)
     return switch o {
+      case IsNull: 'IS NULL';
       case Not: 'NOT';
       case Neg: '-';      
     }
@@ -40,8 +41,10 @@ class Format {
     function rec(e:ExprData<Dynamic>)
       return
         switch e {
-          case EUnOp(op, a):
+          case EUnOp(op, a, false):
             unOp(op) + ' ' + rec(a);
+          case EUnOp(op, a, true):
+            rec(a) + ' ' + unOp(op);
           case EBinOp(In, a, b) if(isEmptyArray(b)): // workaround haxe's weird behavior with abstract over enum
             s.value(false);
           case EBinOp(op, a, b):
@@ -140,17 +143,20 @@ class Format {
     return sql;
   }
   
-  static public function selectAll<A:{}, Db>(t:Target<A, Db>, ?c:Condition, s:Sanitizer, ?limit:Limit)         
-    return select(t, '*', c, s, limit);
+  static public function selectAll<A:{}, Db>(t:Target<A, Db>, ?c:Condition, s:Sanitizer, ?limit:Limit, ?orderBy:OrderBy<A>)         
+    return select(t, '*', c, s, limit, orderBy);
   
-  static function select<A:{}, Db>(t:Target<A, Db>, what:String, ?c:Condition, s:Sanitizer, ?limit:Limit) {
+  static function select<A:{}, Db>(t:Target<A, Db>, what:String, ?c:Condition, s:Sanitizer, ?limit:Limit, ?orderBy:OrderBy<A>) {
     var sql = 'SELECT $what FROM ' + target(t, s);
     
     if (c != null)
       sql += ' WHERE ' + expr(c, s);
       
+    if (orderBy != null)
+      sql += ' ORDER BY ' + [for(o in orderBy) s.ident(o.field.table) + '.' + s.ident(o.field.name) + ' ' + o.order.getName().toUpperCase()].join(', ');
+      
     if (limit != null) 
-      sql += 'LIMIT ${limit.limit} OFFSET ${limit.offset}';
+      sql += ' LIMIT ${limit.limit} OFFSET ${limit.offset}';
       
     return sql;    
   }

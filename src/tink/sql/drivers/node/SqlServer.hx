@@ -64,10 +64,10 @@ class SqlServerConnection<Db:DatabaseInfo> implements Connection<Db> {
 		return cnx.next(function(cnx) return cnx.request().query(format.createTable(table, sanitizer))).noise();
 	}
 	
-	public function selectAll<A:{}>(t:Target<A, Db>, ?c:Condition, ?limit:Limit):RealStream<A> {
+	public function selectAll<A:{}>(t:Target<A, Db>, ?c:Condition, ?limit:Limit, ?orderBy:OrderBy<A>):RealStream<A> {
 		
 		return Stream.promise(cnx.next(function(cnx):Stream<A, Error> {
-			var query = format.selectAll(t, c, sanitizer, limit);
+			var query = format.selectAll(t, c, sanitizer, limit, orderBy);
 			
 			var req = cnx.request();
 			req.stream = true;

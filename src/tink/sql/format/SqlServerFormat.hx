@@ -48,10 +48,10 @@ class SqlServerFormat {
 		return sql;
 	}
 	
-	public function selectAll<A:{}, Db>(t:Target<A, Db>, ?c:Condition, s:Sanitizer, ?limit:Limit)         
-		return select(t, '*', c, s, limit);
+	public function selectAll<A:{}, Db>(t:Target<A, Db>, ?c:Condition, s:Sanitizer, ?limit:Limit, ?orderBy:OrderBy<A>)         
+		return select(t, '*', c, s, limit, orderBy);
 
-	function select<A:{}, Db>(t:Target<A, Db>, what:String, ?c:Condition, s:Sanitizer, ?limit:Limit) {
+	function select<A:{}, Db>(t:Target<A, Db>, what:String, ?c:Condition, s:Sanitizer, ?limit:Limit, ?orderBy:OrderBy<A>) {
 		
 		var query = new QueryBuilder();
 		
@@ -61,10 +61,12 @@ class SqlServerFormat {
 			query.addString('WHERE');
 			query.addExpr(c);
 		}
+			
+		if (orderBy != null)
+			query.addString(' ORDER BY ' + [for(o in orderBy) s.ident(o.field.table) + '.' + s.ident(o.field.name) + ' ' + o.order.getName().toUpperCase()].join(', '));
 		
-		if (limit != null) {
+		if (limit != null)
 			query.addString('LIMIT ${limit.limit} OFFSET ${limit.offset}');
-		}
 		
 		return query.export();
 	}
@@ -179,8 +181,10 @@ class QueryBuilder {
 		function rec(e:ExprData<Dynamic>) {
 			return
 				switch e {
-					case EUnOp(op, a):
+					case EUnOp(op, a, false):
 						unOp(op) + ' ' + rec(a);
+					case EUnOp(op, a, true):
+						rec(a) + ' ' + unOp(op);
 					case EBinOp(In, a, b) if(isEmptyArray(b)): // workaround haxe's weird behavior with abstract over enum
 						'@' + addParam(/*NativeTypes.Bit*/ null, false);
 					case EBinOp(op, a, b):
@@ -238,6 +242,7 @@ class QueryBuilder {
 		
 	function unOp(o:UnOp<Dynamic, Dynamic>)
 		return switch o {
+			case IsNull: 'IS NULL'; // TODO: seems incorrect for SQL Server
 			case Not: 'NOT';
 			case Neg: '-';      
 		}

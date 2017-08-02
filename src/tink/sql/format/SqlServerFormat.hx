@@ -55,7 +55,12 @@ class SqlServerFormat {
 		
 		var query = new QueryBuilder();
 		
-		query.addString('SELECT $what FROM ' + Format.target(t, s));
+		query.addString('SELECT');
+		
+		if (limit != null && limit.offset == 0)
+			query.addString('TOP (${limit.limit})');
+		
+		query.addString('$what FROM ' + Format.target(t, s));
 		
 		if (c != null) {
 			query.addString('WHERE');
@@ -63,17 +68,23 @@ class SqlServerFormat {
 		}
 			
 		if (orderBy != null)
-			query.addString(' ORDER BY ' + [for(o in orderBy) s.ident(o.field.table) + '.' + s.ident(o.field.name) + ' ' + o.order.getName().toUpperCase()].join(', '));
+			query.addString('ORDER BY ' + [for(o in orderBy) s.ident(o.field.table) + '.' + s.ident(o.field.name) + ' ' + o.order.getName().toUpperCase()].join(', '));
 		
-		if (limit != null)
-			query.addString('LIMIT ${limit.limit} OFFSET ${limit.offset}');
+		if (limit != null && limit.offset != 0) // TODO: this does not work now, becuase OFFSET requires ORDER BY to work
+			query.addString('OFFSET ${limit.offset} ROWS FETCH NEXT ${limit.limit} ROWS ONLY');
 		
+		trace(query.export().sql);
 		return query.export();
 	}
 	
 	public function update<Row:{}>(table:TableInfo<Row>, c:Null<Condition>, max:Null<Int>, update:Update<Row>, s:Sanitizer) {
 		var query = new QueryBuilder();
-		query.addString('UPDATE ${table.getName()} SET');
+		query.addString('UPDATE');
+		
+		if (max != null)
+			query.addString('TOP (${s.value(max)})');
+			
+		query.addString('${table.getName()} SET');
 		
 		var first = true;
 		for (u in update) {
@@ -85,9 +96,6 @@ class SqlServerFormat {
 			query.addString('WHERE');
 			query.addExpr(c);
 		}
-		
-		if (max != null)
-			query.addString('LIMIT ' + s.value(max));
 		
 		return query.export();
 	}

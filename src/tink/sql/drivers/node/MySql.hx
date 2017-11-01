@@ -29,6 +29,7 @@ class MySql implements Driver {
       port: settings.port,
       database: name,
       connectionLimit: 3,
+      charset: 'UTF8MB4_GENERAL_CI',
     });
     
     return new MySqlConnection(info, cnx);
@@ -218,6 +219,7 @@ private extern class NativeDriver {
 private typedef Config = {>MySqlSettings,
   public var database(default, null):String;
   @:optional public var connectionLimit(default, null):Int;
+  @:optional public var charset(default, null):String;
 }
 
 private typedef NativeConnection = {

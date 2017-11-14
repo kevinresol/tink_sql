@@ -150,7 +150,15 @@ class MySqlConnection<Db:DatabaseInfo> implements Connection<Db> implements Sani
                 (cast rowCopy : A);
               }];
               
-            Success(Stream.ofIterator(result.iterator()));
+              // WORKAROUND: https://github.com/haxetink/tink_streams/issues/17
+              var batchSize = 1000;
+              var s = Empty.make();
+              for(i in 0...Math.ceil(result.length / batchSize)) {
+                var slice = result.slice(i * batchSize, (i + 1) * batchSize);
+                s = s.append(Stream.ofIterator(slice.iterator()));
+              }
+              
+            Success(s);
             
           case [e, _]:
             toError(e);

@@ -14,8 +14,13 @@ import tink.streams.Stream;
 
 using tink.CoreApi;
 
+private typedef NodeSqlServerSettings = {
+	> SqlServerSettings,
+	?useUTC:Bool,
+}
+
 class SqlServer implements Driver {
-	var settings:SqlServerSettings;
+	var settings:NodeSqlServerSettings;
 	
 	public function new(settings)
 		this.settings = settings;
@@ -28,11 +33,8 @@ class SqlServer implements Driver {
 			password: settings.password,
 			server: settings.host,
 			database: name,
-			// options: {
-				port: settings.port,
-				// If you're on Windows Azure, you will need this:
-				// encrypt: true,
-			// },
+			port: settings.port,
+			useUTC: settings.useUTC,
 		}, function(e) trigger.trigger(e == null ? Success(cnx) : Failure(Error.withData(500, e.message, e))));
 		return new SqlServerConnection(trigger);
 	}

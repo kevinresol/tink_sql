@@ -34,7 +34,9 @@ class SqlServer implements Driver {
 			server: settings.host,
 			database: name,
 			port: settings.port,
-			useUTC: settings.useUTC,
+			options: {
+				useUTC: settings.useUTC,
+			},
 		}, function(e) trigger.trigger(e == null ? Success(cnx) : Failure(Error.withData(500, e.message, e))));
 		return new SqlServerConnection(trigger);
 	}
